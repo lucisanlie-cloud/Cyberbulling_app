@@ -31,6 +31,23 @@ from modules.views import (
     render_analysis_history,
     render_privacy_policy,
 )
+import base64
+with open("logo.png", "rb") as f:
+    b64 = base64.b64encode(f.read()).decode()
+
+pwa = (
+    "<link rel=\"apple-touch-icon\" sizes=\"180x180\" "
+    "href=\"data:image/png;base64," + b64 + "\">" + "\n"
+    "<link rel=\"icon\" type=\"image/png\" "
+    "href=\"data:image/png;base64," + b64 + "\">" + "\n"
+    "<meta name=\"apple-mobile-web-app-capable\" content=\"yes\">\n"
+    "<meta name=\"apple-mobile-web-app-title\" content=\"CyberShield AI\">\n"
+)
+
+with open("pwa_snippet.txt", "w") as f:
+    f.write(pwa)
+print("Listo! pwa_snippet.txt creado.")
+
 
 # ─────────────────────────────────────────────
 # PAGE CONFIGURATION
