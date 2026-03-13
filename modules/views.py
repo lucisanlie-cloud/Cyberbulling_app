@@ -1,8 +1,8 @@
 """
 views.py
 --------
-Módulo de vistas para CyberShield AI.
-Versión actualizada con métricas reales, historial, perfil completo e inicio mejorado.
+Views module for CyberShield AI.
+Updated version with real metrics, history, full profile and improved home.
 
 Author: Luci Jabba
 Copyright (c) 2026 Luci Jabba
@@ -25,354 +25,334 @@ from .database import (
 from .export_pdf import generate_reports_pdf
 from .email_alerts import send_alert_email, is_email_configured
 
-# Respuestas predefinidas anti-bullying
+# Predefined anti-bullying responses
 ANTI_BULLYING_RESPONSES = [
-    "Por favor comunícate con respeto.",
-    "Todos merecemos amabilidad en línea.",
-    "Mantengamos conversaciones positivas.",
-    "Las palabras pueden herir. Seamos respetuosos.",
-    "El respeto es fundamental en cualquier comunidad digital.",
+    "Please communicate with respect.",
+    "Everyone deserves kindness online.",
+    "Let's keep conversations positive.",
+    "Words can hurt. Let's be respectful.",
+    "Respect is essential in any digital community.",
 ]
 
-# Coordenadas para el mapa de toxicidad
+# Coordinates for the toxicity map
 TOXICITY_MAP_LOCATIONS = pd.DataFrame({
     "lat": [40.7128, 51.5074, 40.4168, 35.6762, 4.7110, -33.8688],
     "lon": [-74.0060, -0.1278, -3.7038, 139.6503, -74.0721, 151.2093],
-    "ciudad": ["New York", "London", "Madrid", "Tokyo", "Bogotá", "Sydney"],
+    "city": ["New York", "London", "Madrid", "Tokyo", "Bogotá", "Sydney"],
 })
 
 
 # ─────────────────────────────────────────────
-# INICIO (MEJORADO CON MÉTRICAS REALES)
+# HOME (WITH REAL METRICS)
 # ─────────────────────────────────────────────
 
 def render_home(conn, username: str) -> None:
-    """
-    Página de inicio con métricas reales de la BD y bienvenida personalizada.
-    """
-    st.markdown(f"### 👋 Bienvenida, **{username}**")
-    st.write("CyberShield AI detecta ciberacoso usando inteligencia artificial.")
+    st.markdown(f"### 👋 Welcome, **{username}**")
+    st.write("CyberShield AI detects cyberbullying using artificial intelligence.")
     st.markdown("---")
 
-    # ── Métricas reales ──────────────────────
-    st.markdown("#### 📊 Estadísticas de la plataforma")
+    st.markdown("#### 📊 Platform Statistics")
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("👥 Usuarios registrados",  count_users(conn))
-    col2.metric("🚨 Incidentes reportados", count_reports(conn))
-    col3.metric("🔍 Análisis realizados",   count_analyses(conn))
-    col4.metric("☠️ Alertas de peligro",    count_toxic_analyses(conn))
+    col1.metric("👥 Registered Users",   count_users(conn))
+    col2.metric("🚨 Reported Incidents", count_reports(conn))
+    col3.metric("🔍 Analyses Performed", count_analyses(conn))
+    col4.metric("☠️ Danger Alerts",      count_toxic_analyses(conn))
 
     st.markdown("---")
 
-    # ── Gráfico de reportes recientes ────────
-    st.markdown("#### 📈 Reportes de los últimos 30 días")
+    st.markdown("#### 📈 Reports from the last 30 days")
     df_days = get_reports_by_day(conn)
     if df_days.empty:
-        st.info("Aún no hay reportes registrados.")
+        st.info("No reports registered yet.")
     else:
         fig = px.bar(
             df_days, x="fecha", y="total",
             color_discrete_sequence=["#6B21A8"],
-            labels={"fecha": "Fecha", "total": "Reportes"},
+            labels={"fecha": "Date", "total": "Reports"},
         )
         fig.update_layout(showlegend=False, margin=dict(t=20, b=20))
         st.plotly_chart(fig, use_container_width=True)
 
-    # ── Historial reciente del usuario ───────
-    st.markdown("#### 🕒 Tus últimos análisis")
+    st.markdown("#### 🕒 Your recent analyses")
     history = get_user_history(conn, username)
     if history.empty:
-        st.info("Aún no has realizado ningún análisis.")
+        st.info("You haven't performed any analyses yet.")
     else:
         st.dataframe(history.head(5), use_container_width=True)
 
 
 # ─────────────────────────────────────────────
-# DETECTOR DE CIBERACOSO
+# CYBERBULLYING DETECTOR
 # ─────────────────────────────────────────────
 
 def render_cyberbullying_detector(model, conn, username: str) -> None:
-    st.subheader("🤖 Detector de Ciberacoso")
-    text = st.text_area("Ingresa el mensaje a analizar", height=150)
+    st.subheader("🤖 Cyberbullying Detector")
+    text = st.text_area("Enter the message to analyze", height=150)
 
-    if st.button("Analizar", key="analyze_single"):
+    if st.button("Analyze", key="analyze_single"):
         if not text.strip():
-            st.warning("Por favor ingresa un mensaje.")
+            st.warning("Please enter a message.")
             return
 
         result = analyze_toxicity(model, text)
         score  = result["score"]
 
-        st.metric("Puntuación de toxicidad", f"{score}/100")
+        st.metric("Toxicity Score", f"{score}/100")
 
         if result["level"] == "safe":
-            st.success("✅ Mensaje seguro")
+            st.success("✅ Safe message")
         elif result["level"] == "warning":
-            st.warning("⚠️ Posible toxicidad — revisa el contenido")
+            st.warning("⚠️ Possible toxicity — please review the content")
         else:
-            st.error("🚨 Riesgo de ciberacoso detectado")
+            st.error("🚨 Cyberbullying risk detected")
 
-        # Guardar en historial
-        save_analysis(conn, username, "texto", text[:100], score, result["level"])
+        save_analysis(conn, username, "text", text[:100], score, result["level"])
 
 
 # ─────────────────────────────────────────────
-# ANALIZADOR POR LOTES
+# BATCH ANALYZER
 # ─────────────────────────────────────────────
 
 def render_batch_analyzer(model, conn, username: str) -> None:
-    st.subheader("💬 Analizador de Comentarios por Lote")
-    st.info("Ingresa un comentario por línea.")
-    raw_text = st.text_area("Comentarios", height=200)
+    st.subheader("💬 Batch Comment Analyzer")
+    st.info("Enter one comment per line.")
+    raw_text = st.text_area("Comments", height=200)
 
-    if st.button("Analizar lote", key="analyze_batch"):
+    if st.button("Analyze batch", key="analyze_batch"):
         lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
         if not lines:
-            st.warning("Por favor ingresa al menos un comentario.")
+            st.warning("Please enter at least one comment.")
             return
 
-        with st.spinner(f"Analizando {len(lines)} comentarios…"):
+        with st.spinner(f"Analyzing {len(lines)} comments…"):
             results = analyze_batch(model, lines)
 
         df = pd.DataFrame({
-            "Comentario":  lines,
-            "Puntuación":  [r["score"] for r in results],
-            "Nivel":       [r["level"] for r in results],
+            "Comment": lines,
+            "Score":   [r["score"] for r in results],
+            "Level":   [r["level"] for r in results],
         })
         st.dataframe(df, use_container_width=True)
 
-        # Guardar resumen en historial
         avg = sum(r["score"] for r in results) // len(results)
         level = "danger" if avg >= 60 else "warning" if avg >= 30 else "safe"
-        save_analysis(conn, username, "lote", f"{len(lines)} comentarios", avg, level)
+        save_analysis(conn, username, "batch", f"{len(lines)} comments", avg, level)
 
 
 # ─────────────────────────────────────────────
-# PUNTAJE DE SEGURIDAD
+# SAFETY SCORE
 # ─────────────────────────────────────────────
 
 def render_user_safety_score(model, conn, username: str) -> None:
-    st.subheader("🛡 Puntaje de Seguridad de Usuario")
-    st.info("Analiza los comentarios reales que recibe un perfil público de Instagram.")
+    st.subheader("🛡 User Safety Score")
+    st.info("Analyzes real comments received by a public Instagram profile.")
 
     col1, col2 = st.columns([3, 1])
     with col1:
-        ig_username = st.text_input("Usuario de Instagram a evaluar (sin @)")
+        ig_username = st.text_input("Instagram username to evaluate (without @)")
     with col2:
-        max_posts = st.number_input("Posts a revisar", min_value=1, max_value=10, value=3)
+        max_posts = st.number_input("Posts to review", min_value=1, max_value=10, value=3)
 
-    if st.button("Calcular puntaje"):
+    if st.button("Calculate score"):
         if not ig_username:
-            st.warning("Ingresa un nombre de usuario.")
+            st.warning("Please enter a username.")
             return
 
         from .instagram import get_recent_comments
-        with st.spinner(f"Obteniendo comentarios de @{ig_username}…"):
+        with st.spinner(f"Fetching comments from @{ig_username}…"):
             comments = get_recent_comments(ig_username, max_posts=max_posts)
 
         if not comments:
-            st.warning("No se encontraron comentarios.")
+            st.warning("No comments found.")
             return
 
-        with st.spinner("Analizando toxicidad con IA…"):
+        with st.spinner("Analyzing toxicity with AI…"):
             results = analyze_batch(model, comments)
 
         avg_score = sum(r["score"] for r in results) // len(results)
         safety    = 100 - avg_score
         level     = "danger" if avg_score >= 60 else "warning" if avg_score >= 30 else "safe"
 
-        st.metric(f"Puntaje de seguridad de @{ig_username}", f"{safety}/100")
+        st.metric(f"Safety score for @{ig_username}", f"{safety}/100")
 
         if safety >= 70:
-            st.success("✅ El perfil recibe comentarios mayormente seguros.")
+            st.success("✅ This profile receives mostly safe comments.")
         elif safety >= 40:
-            st.warning("⚠️ El perfil recibe comentarios con toxicidad moderada.")
+            st.warning("⚠️ This profile receives comments with moderate toxicity.")
         else:
-            st.error("🚨 El perfil está recibiendo comentarios altamente tóxicos.")
+            st.error("🚨 This profile is receiving highly toxic comments.")
 
         df = pd.DataFrame({
-            "Comentario":      comments,
-            "Puntuación tóxica": [r["score"] for r in results],
-            "Nivel":           [r["level"] for r in results],
+            "Comment":       comments,
+            "Toxic Score":   [r["score"] for r in results],
+            "Level":         [r["level"] for r in results],
         })
         st.dataframe(df, use_container_width=True)
         save_analysis(conn, username, "instagram", f"@{ig_username}", avg_score, level)
 
 
 # ─────────────────────────────────────────────
-# DETECTOR DE CUENTAS FALSAS
+# FAKE ACCOUNT DETECTOR
 # ─────────────────────────────────────────────
 
 def render_fake_account_detector(conn, username: str) -> None:
-    st.subheader("🕵 Detector de Cuentas Falsas")
-    st.info("Ingresa un usuario público de Instagram para analizarlo automáticamente.")
-    ig_username = st.text_input("Username de Instagram (sin @)")
+    st.subheader("🕵 Fake Account Detector")
+    st.info("Enter a public Instagram username to analyze it automatically.")
+    ig_username = st.text_input("Instagram username (without @)")
 
-    if st.button("Analizar cuenta"):
+    if st.button("Analyze account"):
         if not ig_username:
-            st.warning("Ingresa un nombre de usuario.")
+            st.warning("Please enter a username.")
             return
 
         from .instagram import get_profile_info, analyze_fake_account
-        with st.spinner(f"Consultando perfil @{ig_username}…"):
+        with st.spinner(f"Fetching profile @{ig_username}…"):
             profile = get_profile_info(ig_username)
 
         if profile is None:
-            st.error("No se encontró el perfil.")
+            st.error("Profile not found.")
             return
 
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Seguidores",    f"{profile['followers']:,}")
-        col2.metric("Seguidos",      f"{profile['following']:,}")
-        col3.metric("Publicaciones", f"{profile['posts']:,}")
-        col4.metric("Ratio",         profile["ratio"])
+        col1.metric("Followers",  f"{profile['followers']:,}")
+        col2.metric("Following",  f"{profile['following']:,}")
+        col3.metric("Posts",      f"{profile['posts']:,}")
+        col4.metric("Ratio",      profile["ratio"])
 
         if profile["is_verified"]:
-            st.success("✅ Cuenta verificada")
+            st.success("✅ Verified account")
         if profile["is_private"]:
-            st.warning("🔒 Cuenta privada")
+            st.warning("🔒 Private account")
         if profile["biography"]:
             st.caption(f"**Bio:** {profile['biography']}")
 
         result = analyze_fake_account(profile)
-        st.metric("Probabilidad de cuenta falsa", f"{result['risk_score']}%")
+        st.metric("Fake account probability", f"{result['risk_score']}%")
         for indicator in result["indicators"]:
             st.write(indicator)
 
         if result["level"] == "low":
-            st.success("✅ Cuenta con indicadores normales.")
+            st.success("✅ Account with normal indicators.")
         elif result["level"] == "medium":
-            st.warning("⚠️ Cuenta con indicadores sospechosos.")
+            st.warning("⚠️ Account with suspicious indicators.")
         else:
-            st.error("🚨 Alta probabilidad de cuenta falsa.")
+            st.error("🚨 High probability of fake account.")
 
-        save_analysis(conn, username, "cuenta_falsa", f"@{ig_username}",
+        save_analysis(conn, username, "fake_account", f"@{ig_username}",
                       result["risk_score"],
                       "danger" if result["level"] == "high" else result["level"])
 
 
 # ─────────────────────────────────────────────
-# ANÁLISIS DE PERFIL COMPLETO (NUEVO)
+# FULL PROFILE ANALYSIS
 # ─────────────────────────────────────────────
 
 def render_full_profile_analysis(model, conn, username: str) -> None:
-    """
-    Vista nueva que combina en un solo lugar:
-    datos de Instagram + toxicidad de comentarios + detector de cuenta falsa.
-    """
-    st.subheader("🔎 Análisis de Perfil Completo")
-    st.info("Análisis integral: datos del perfil + toxicidad + autenticidad.")
-    ig_username = st.text_input("Usuario de Instagram (sin @)", key="full_profile")
+    st.subheader("🔎 Full Profile Analysis")
+    st.info("Comprehensive analysis: profile data + toxicity + authenticity.")
+    ig_username = st.text_input("Instagram username (without @)", key="full_profile")
 
-    if st.button("Analizar perfil completo", type="primary"):
+    if st.button("Analyze full profile", type="primary"):
         if not ig_username:
-            st.warning("Ingresa un nombre de usuario.")
+            st.warning("Please enter a username.")
             return
 
         from .instagram import get_profile_info, get_recent_comments, analyze_fake_account
 
-        # ── 1. Datos del perfil ──────────────
-        with st.spinner("Consultando perfil…"):
+        with st.spinner("Fetching profile…"):
             profile = get_profile_info(ig_username)
 
         if not profile:
-            st.error("No se encontró el perfil.")
+            st.error("Profile not found.")
             return
 
-        st.markdown("### 👤 Información del perfil")
+        st.markdown("### 👤 Profile Information")
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Seguidores",    f"{profile['followers']:,}")
-        col2.metric("Seguidos",      f"{profile['following']:,}")
-        col3.metric("Publicaciones", f"{profile['posts']:,}")
-        col4.metric("Ratio",         profile["ratio"])
+        col1.metric("Followers",  f"{profile['followers']:,}")
+        col2.metric("Following",  f"{profile['following']:,}")
+        col3.metric("Posts",      f"{profile['posts']:,}")
+        col4.metric("Ratio",      profile["ratio"])
 
         if profile["full_name"]:
-            st.caption(f"**Nombre:** {profile['full_name']}")
+            st.caption(f"**Name:** {profile['full_name']}")
         if profile["biography"]:
             st.caption(f"**Bio:** {profile['biography']}")
         if profile["is_verified"]:
-            st.success("✅ Cuenta verificada")
+            st.success("✅ Verified account")
         if profile["is_private"]:
-            st.warning("🔒 Cuenta privada — análisis de comentarios limitado")
+            st.warning("🔒 Private account — comment analysis limited")
 
         st.markdown("---")
 
-        # ── 2. Autenticidad ──────────────────
-        st.markdown("### 🕵 Evaluación de autenticidad")
+        st.markdown("### 🕵 Authenticity Evaluation")
         fake = analyze_fake_account(profile)
-        st.metric("Probabilidad de cuenta falsa", f"{fake['risk_score']}%")
+        st.metric("Fake account probability", f"{fake['risk_score']}%")
         for ind in fake["indicators"]:
             st.write(ind)
 
         st.markdown("---")
 
-        # ── 3. Toxicidad de comentarios ──────
-        st.markdown("### ☠️ Análisis de toxicidad en comentarios")
+        st.markdown("### ☠️ Comment Toxicity Analysis")
         if profile["is_private"]:
-            st.warning("Cuenta privada — no se pueden obtener comentarios.")
+            st.warning("Private account — comments cannot be retrieved.")
         else:
-            with st.spinner("Obteniendo comentarios…"):
+            with st.spinner("Fetching comments…"):
                 comments = get_recent_comments(ig_username, max_posts=2)
 
             if comments:
-                with st.spinner("Analizando toxicidad…"):
+                with st.spinner("Analyzing toxicity…"):
                     results = analyze_batch(model, comments)
 
                 avg_score = sum(r["score"] for r in results) // len(results)
                 safety    = 100 - avg_score
 
                 col1, col2 = st.columns(2)
-                col1.metric("Puntaje de seguridad", f"{safety}/100")
-                col2.metric("Toxicidad promedio",   f"{avg_score}/100")
+                col1.metric("Safety Score",      f"{safety}/100")
+                col2.metric("Average Toxicity",  f"{avg_score}/100")
 
                 df = pd.DataFrame({
-                    "Comentario":  comments,
-                    "Toxicidad":   [r["score"] for r in results],
-                    "Nivel":       [r["level"] for r in results],
+                    "Comment":  comments,
+                    "Toxicity": [r["score"] for r in results],
+                    "Level":    [r["level"] for r in results],
                 })
                 st.dataframe(df, use_container_width=True)
 
-                # Gráfico
                 fig = px.histogram(
-                    df, x="Nivel", color="Nivel",
+                    df, x="Level", color="Level",
                     color_discrete_map={"safe": "#16A34A", "warning": "#D97706", "danger": "#DC2626"},
-                    title="Distribución de niveles de toxicidad",
+                    title="Toxicity level distribution",
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
                 level = "danger" if avg_score >= 60 else "warning" if avg_score >= 30 else "safe"
-                save_analysis(conn, username, "perfil_completo", f"@{ig_username}", avg_score, level)
+                save_analysis(conn, username, "full_profile", f"@{ig_username}", avg_score, level)
             else:
-                st.info("No se encontraron comentarios públicos.")
+                st.info("No public comments found.")
 
 
 # ─────────────────────────────────────────────
-# HISTORIAL DE ANÁLISIS (NUEVO)
+# ANALYSIS HISTORY
 # ─────────────────────────────────────────────
 
 def render_analysis_history(conn, username: str) -> None:
-    """Vista del historial personal de análisis del usuario."""
-    st.subheader("🕒 Mi Historial de Análisis")
+    st.subheader("🕒 My Analysis History")
 
     history = get_user_history(conn, username)
 
     if history.empty:
-        st.info("Aún no has realizado ningún análisis.")
+        st.info("You haven't performed any analyses yet.")
         return
 
-    # Métricas rápidas
     col1, col2, col3 = st.columns(3)
-    col1.metric("Total análisis", len(history))
-    col2.metric("Peligrosos",     len(history[history["level"] == "danger"]))
-    col3.metric("Seguros",        len(history[history["level"] == "safe"]))
+    col1.metric("Total analyses", len(history))
+    col2.metric("Dangerous",      len(history[history["level"] == "danger"]))
+    col3.metric("Safe",           len(history[history["level"] == "safe"]))
 
-    # Filtro por tipo
-    tipos = ["Todos"] + history["type"].unique().tolist()
-    filtro = st.selectbox("Filtrar por tipo", tipos)
-    if filtro != "Todos":
-        history = history[history["type"] == filtro]
+    types = ["All"] + history["type"].unique().tolist()
+    filter_type = st.selectbox("Filter by type", types)
+    if filter_type != "All":
+        history = history[history["type"] == filter_type]
 
-    # Colorear nivel
     def color_level(val):
         colors = {"safe": "background-color: #DCFCE7", "warning": "background-color: #FEF9C3", "danger": "background-color: #FEE2E2"}
         return colors.get(val, "")
@@ -384,155 +364,148 @@ def render_analysis_history(conn, username: str) -> None:
 
 
 # ─────────────────────────────────────────────
-# ANÁLISIS DE EMOCIONES
+# EMOTION ANALYSIS
 # ─────────────────────────────────────────────
 
 def render_emotion_analysis(model) -> None:
-    st.subheader("🧠 Análisis de Emociones")
-    text = st.text_area("Texto a analizar emocionalmente", height=120)
+    st.subheader("🧠 Emotion Analysis")
+    text = st.text_area("Text to analyze emotionally", height=120)
 
-    if st.button("Analizar emociones"):
+    if st.button("Analyze emotions"):
         if not text.strip():
-            st.warning("Ingresa un texto.")
+            st.warning("Please enter a text.")
             return
 
         result = analyze_toxicity(model, text)
         score  = result["score"]
 
         emotions_data = pd.DataFrame({
-            "Emoción":    ["Ira", "Tristeza", "Miedo", "Neutral"],
-            "Intensidad": [max(0, score - 10), max(0, score // 2), max(0, score // 3), max(0, 100 - score)],
+            "Emotion":   ["Anger", "Sadness", "Fear", "Neutral"],
+            "Intensity": [max(0, score - 10), max(0, score // 2), max(0, score // 3), max(0, 100 - score)],
         })
-        fig = px.bar(emotions_data, x="Emoción", y="Intensidad",
-                     color="Emoción", title="Distribución Emocional")
+        fig = px.bar(emotions_data, x="Emotion", y="Intensity",
+                     color="Emotion", title="Emotional Distribution")
         st.plotly_chart(fig, use_container_width=True)
 
 
 # ─────────────────────────────────────────────
-# ESTADÍSTICAS (CON DATOS REALES)
+# STATISTICS
 # ─────────────────────────────────────────────
 
 def render_statistics(conn) -> None:
-    st.subheader("📊 Estadísticas Generales")
+    st.subheader("📊 General Statistics")
 
     reports_df = get_all_reports(conn)
     history_df = get_all_history(conn)
 
     if reports_df.empty and history_df.empty:
-        st.info("Aún no hay suficientes datos para mostrar estadísticas.")
+        st.info("Not enough data to display statistics yet.")
         return
 
     col1, col2 = st.columns(2)
 
     with col1:
         if not reports_df.empty:
-            # Reportes por agresor
-            top_agresores = reports_df["aggressor"].value_counts().head(5).reset_index()
-            top_agresores.columns = ["Agresor", "Reportes"]
-            fig = px.bar(top_agresores, x="Agresor", y="Reportes",
-                         title="Top agresores reportados",
+            top_aggressors = reports_df["aggressor"].value_counts().head(5).reset_index()
+            top_aggressors.columns = ["Aggressor", "Reports"]
+            fig = px.bar(top_aggressors, x="Aggressor", y="Reports",
+                         title="Top reported aggressors",
                          color_discrete_sequence=["#6B21A8"])
             st.plotly_chart(fig, use_container_width=True)
 
     with col2:
         if not history_df.empty:
-            # Distribución de niveles
-            nivel_counts = history_df["level"].value_counts().reset_index()
-            nivel_counts.columns = ["Nivel", "Total"]
-            fig = px.pie(nivel_counts, names="Nivel", values="Total",
-                         title="Distribución de niveles de toxicidad",
-                         color="Nivel",
+            level_counts = history_df["level"].value_counts().reset_index()
+            level_counts.columns = ["Level", "Total"]
+            fig = px.pie(level_counts, names="Level", values="Total",
+                         title="Toxicity level distribution",
+                         color="Level",
                          color_discrete_map={"safe": "#16A34A", "warning": "#D97706", "danger": "#DC2626"})
             st.plotly_chart(fig, use_container_width=True)
 
-    # Evolución de reportes
     df_days = get_reports_by_day(conn)
     if not df_days.empty:
         fig = px.line(df_days, x="fecha", y="total",
-                      title="Evolución de reportes (últimos 30 días)",
+                      title="Report trend (last 30 days)",
                       color_discrete_sequence=["#6B21A8"])
         st.plotly_chart(fig, use_container_width=True)
 
 
 # ─────────────────────────────────────────────
-# DASHBOARD DE IA
+# AI DASHBOARD
 # ─────────────────────────────────────────────
 
 def render_ai_dashboard(conn) -> None:
-    st.subheader("📊 Dashboard de Inteligencia Artificial")
+    st.subheader("📊 Artificial Intelligence Dashboard")
 
     history_df = get_all_history(conn)
     if history_df.empty:
-        st.info("Aún no hay análisis para mostrar en el dashboard.")
+        st.info("No analyses to display in the dashboard yet.")
         return
 
     col1, col2 = st.columns(2)
     with col1:
-        # Análisis por tipo
         type_counts = history_df["type"].value_counts().reset_index()
-        type_counts.columns = ["Tipo", "Total"]
-        fig = px.bar(type_counts, x="Tipo", y="Total",
+        type_counts.columns = ["Type", "Total"]
+        fig = px.bar(type_counts, x="Type", y="Total",
                      color="Total", color_continuous_scale="Purples",
-                     title="Análisis realizados por tipo")
+                     title="Analyses performed by type")
         st.plotly_chart(fig, use_container_width=True)
 
     with col2:
-        # Score promedio por tipo
         avg_by_type = history_df.groupby("type")["score"].mean().reset_index()
-        avg_by_type.columns = ["Tipo", "Score promedio"]
-        fig = px.bar(avg_by_type, x="Tipo", y="Score promedio",
-                     color="Score promedio", color_continuous_scale="Reds",
-                     title="Toxicidad promedio por tipo de análisis")
+        avg_by_type.columns = ["Type", "Average Score"]
+        fig = px.bar(avg_by_type, x="Type", y="Average Score",
+                     color="Average Score", color_continuous_scale="Reds",
+                     title="Average toxicity by analysis type")
         st.plotly_chart(fig, use_container_width=True)
 
 
 # ─────────────────────────────────────────────
-# RESPUESTAS ANTI-BULLYING
+# ANTI-BULLYING RESPONSE
 # ─────────────────────────────────────────────
 
 def render_anti_bullying_response() -> None:
-    st.subheader("🤖 Generador de Respuestas Anti-Bullying")
-    toxic_msg = st.text_area("Mensaje tóxico recibido", height=120)
+    st.subheader("🤖 Anti-Bullying Response Generator")
+    toxic_msg = st.text_area("Toxic message received", height=120)
 
-    if st.button("Generar respuesta"):
+    if st.button("Generate response"):
         if not toxic_msg.strip():
-            st.warning("Ingresa el mensaje tóxico.")
+            st.warning("Please enter the toxic message.")
             return
         response = random.choice(ANTI_BULLYING_RESPONSES)
-        st.success(f"**Respuesta sugerida:** {response}")
+        st.success(f"**Suggested response:** {response}")
 
 
 # ─────────────────────────────────────────────
-# MAPA DE TOXICIDAD
+# TOXICITY MAP
 # ─────────────────────────────────────────────
 
 def render_toxicity_map() -> None:
-    st.subheader("🌍 Mapa de Toxicidad Global")
-    st.info("Ubicaciones con mayor incidencia de reportes (datos de demostración).")
+    st.subheader("🌍 Global Toxicity Map")
+    st.info("Locations with the highest report incidence (demo data).")
     st.map(TOXICITY_MAP_LOCATIONS[["lat", "lon"]])
     st.dataframe(TOXICITY_MAP_LOCATIONS, use_container_width=True)
 
 
 # ─────────────────────────────────────────────
-# REPORTE DE INCIDENTES
+# REPORT INCIDENT
 # ─────────────────────────────────────────────
 
 def render_report_incident(conn, username: str) -> None:
-    st.subheader("🚨 Reportar Incidente")
+    st.subheader("🚨 Report Incident")
 
-    aggressor = st.text_input("Usuario agresor")
-    message   = st.text_area("Descripción del incidente", height=150)
+    aggressor = st.text_input("Aggressor's username")
+    message   = st.text_area("Incident description", height=150)
 
-    if st.button("Enviar reporte"):
+    if st.button("Submit report"):
         if not aggressor or not message.strip():
-            st.warning("Por favor completa todos los campos.")
+            st.warning("Please fill in all fields.")
             return
 
         save_report(conn, reporter=username, aggressor=aggressor, message=message)
-        st.success("✅ Reporte enviado correctamente.")
+        st.success("✅ Report submitted successfully.")
 
-        # Analizar toxicidad del mensaje y enviar email si es grave
-        # (importamos aquí para evitar carga innecesaria)
         try:
             from .ai_models import load_toxicity_model
             model = load_toxicity_model()
@@ -540,50 +513,50 @@ def render_report_incident(conn, username: str) -> None:
             if result["level"] == "danger":
                 sent = send_alert_email(username, aggressor, message, result["score"])
                 if sent:
-                    st.info("📧 Se envió una alerta por email al administrador.")
+                    st.info("📧 An alert email was sent to the administrator.")
         except Exception:
-            pass  # No interrumpir si el email falla
+            pass
 
 
 # ─────────────────────────────────────────────
-# EDUCACIÓN
+# EDUCATION
 # ─────────────────────────────────────────────
 
 def render_education() -> None:
-    st.subheader("📚 Educación sobre Ciberacoso")
+    st.subheader("📚 Cyberbullying Education")
     st.markdown("""
-    ### ¿Qué es el ciberacoso?
-    El ciberacoso es el uso de tecnologías digitales para acosar, amenazar,
-    humillar o atacar a otras personas.
+    ### What is cyberbullying?
+    Cyberbullying is the use of digital technologies to harass, threaten,
+    humiliate, or attack other people.
 
-    ### Tipos de ciberacoso
-    - **Acoso directo**: mensajes ofensivos enviados directamente a la víctima.
-    - **Exclusión**: excluir deliberadamente a alguien de grupos o actividades online.
-    - **Doxing**: publicar información privada de alguien sin su consentimiento.
-    - **Suplantación**: hacerse pasar por otra persona para dañar su reputación.
+    ### Types of cyberbullying
+    - **Direct harassment**: offensive messages sent directly to the victim.
+    - **Exclusion**: deliberately excluding someone from online groups or activities.
+    - **Doxing**: publishing someone's private information without their consent.
+    - **Impersonation**: pretending to be someone else to damage their reputation.
 
-    ### ¿Qué hacer si eres víctima?
-    1. No respondas a los mensajes agresivos.
-    2. Guarda evidencia (capturas de pantalla).
-    3. Bloquea al agresor.
-    4. Reporta en la plataforma correspondiente.
-    5. Busca apoyo de un adulto de confianza o autoridad.
+    ### What to do if you are a victim?
+    1. Do not respond to aggressive messages.
+    2. Save evidence (screenshots).
+    3. Block the aggressor.
+    4. Report on the corresponding platform.
+    5. Seek support from a trusted adult or authority.
     """)
 
 
 # ─────────────────────────────────────────────
-# PANEL DE ADMINISTRACIÓN
+# ADMIN PANEL
 # ─────────────────────────────────────────────
 
 def render_admin_panel(conn, username: str) -> None:
     if not is_admin(conn, username):
-        st.error("🚫 Acceso denegado.")
+        st.error("🚫 Access denied.")
         return
 
-    st.subheader("⚙ Panel de Administración")
-    st.success(f"✅ Sesión de administrador activa: **{username}**")
+    st.subheader("⚙ Admin Panel")
+    st.success(f"✅ Active admin session: **{username}**")
 
-    tab1, tab2, tab3 = st.tabs(["👥 Usuarios", "🚨 Reportes", "🔍 Historial de análisis"])
+    tab1, tab2, tab3 = st.tabs(["👥 Users", "🚨 Reports", "🔍 Analysis History"])
 
     with tab1:
         users_df = get_all_users(conn)
@@ -592,105 +565,108 @@ def render_admin_panel(conn, username: str) -> None:
     with tab2:
         reports_df = get_all_reports(conn)
         if reports_df.empty:
-            st.info("No hay reportes registrados aún.")
+            st.info("No reports registered yet.")
         else:
             st.dataframe(reports_df, use_container_width=True)
-            if st.button("📥 Descargar reporte en PDF", type="primary"):
-                with st.spinner("Generando PDF…"):
+            if st.button("📥 Download PDF report", type="primary"):
+                with st.spinner("Generating PDF…"):
                     try:
                         pdf_bytes = generate_reports_pdf(reports_df, total_users=len(users_df))
                         st.download_button(
-                            label="⬇️ Haz click aquí para descargar",
+                            label="⬇️ Click here to download",
                             data=pdf_bytes,
                             file_name=f"cybershield_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
                             mime="application/pdf",
                         )
-                        st.success("✅ PDF generado.")
+                        st.success("✅ PDF generated.")
                     except Exception as e:
                         st.error(f"❌ Error: {e}")
 
     with tab3:
         history_df = get_all_history(conn)
         if history_df.empty:
-            st.info("No hay análisis registrados aún.")
+            st.info("No analyses registered yet.")
         else:
             st.dataframe(history_df, use_container_width=True)
 
-    # Estado del email
     st.markdown("---")
-    st.markdown("#### 📧 Estado de alertas por email")
+    st.markdown("#### 📧 Email alert status")
     if is_email_configured():
-        st.success("✅ Notificaciones por email configuradas.")
+        st.success("✅ Email notifications configured.")
     else:
-        st.warning("⚠️ Email no configurado. Añade EMAIL_SENDER, EMAIL_PASSWORD y EMAIL_RECEIVER como variables de entorno.")
+        st.warning("⚠️ Email not configured. Add EMAIL_SENDER, EMAIL_PASSWORD and EMAIL_RECEIVER as environment variables.")
 
+
+# ─────────────────────────────────────────────
+# PRIVACY POLICY
+# ─────────────────────────────────────────────
 
 def render_privacy_policy():
-    st.title("🔒 Política de Privacidad")
-    st.markdown("**Última actualización: 09/03/2026**")
+    st.title("🔒 Privacy Policy")
+    st.markdown("**Last updated: 03/09/2026**")
     st.divider()
     st.markdown("""
 ## Cyberbullying App
 
-Cyberbullying App es una herramienta diseñada para ayudar a identificar y analizar comentarios 
-potencialmente dañinos o abusivos en plataformas de redes sociales. El objetivo es promover 
-entornos en línea más seguros detectando posibles patrones de ciberacoso.
+Cyberbullying App is a tool designed to help identify and analyze potentially harmful or abusive 
+comments on social media platforms. The goal is to promote safer online environments by detecting 
+possible cyberbullying patterns.
 
 ---
 
-### Introducción
-Cyberbullying App respeta la privacidad de sus usuarios. Esta Política de Privacidad explica cómo 
-recopilamos, usamos y protegemos la información cuando se utiliza nuestra aplicación.
+### Introduction
+Cyberbullying App respects the privacy of its users. This Privacy Policy explains how we collect, 
+use, and protect information when using our application.
 
 ---
 
-### Información que Recopilamos
-- Datos públicos de redes sociales que los usuarios elijan analizar.
-- Información técnica básica como tipo de dispositivo o sistema operativo.
-- Contenido proporcionado por el usuario para la detección de ciberacoso.
+### Information We Collect
+- Public social media data that users choose to analyze.
+- Basic technical information such as device type or operating system.
+- User-provided content for cyberbullying detection.
 
-**No recopilamos información personal sensible sin el consentimiento del usuario.**
-
----
-
-### Cómo Usamos la Información
-- Analizar textos y comentarios para detectar ciberacoso.
-- Mejorar la funcionalidad y seguridad de la aplicación.
-- Mejorar la experiencia del usuario.
+**We do not collect sensitive personal information without user consent.**
 
 ---
 
-### Compartir Información
-**No vendemos, intercambiamos ni compartimos la información personal de los usuarios con terceros.**
+### How We Use Information
+- Analyze texts and comments to detect cyberbullying.
+- Improve the functionality and security of the application.
+- Enhance the user experience.
 
 ---
 
-### Seguridad de los Datos
-Tomamos medidas razonables para proteger la información del usuario contra acceso o divulgación no autorizados.
+### Sharing of Information
+**We do not sell, trade, or share users' personal information with third parties.**
 
 ---
 
-### Servicios de Terceros
-Nuestra aplicación puede interactuar con servicios de terceros como plataformas de redes sociales. 
-Sus propias políticas de privacidad pueden aplicarse.
+### Data Security
+We take reasonable measures to protect user information from unauthorized access or disclosure.
 
 ---
 
-### Cambios en esta Política
-Podemos actualizar esta Política de Privacidad ocasionalmente. Las actualizaciones se publicarán en esta página.
+### Third-Party Services
+Our app may interact with third-party services such as social media platforms. 
+Their own privacy policies may apply.
 
 ---
 
-### Eliminación de Datos de Usuario
-Si deseas solicitar la eliminación de tus datos, sigue estos pasos:
-1. Envía un correo a: **lujabbali@gmail.com**
-2. Asunto: **"Data Deletion Request"**
-3. Incluye tu nombre de usuario o identificador de cuenta.
-
-Eliminaremos tus datos en un plazo razonable tras recibir tu solicitud.
+### Changes to This Policy
+We may update this Privacy Policy occasionally. Updates will be posted on this page.
 
 ---
 
-### Contacto
+### User Data Deletion
+If you would like to request deletion of your data, follow these steps:
+1. Send an email to: **lujabbali@gmail.com**
+2. Subject: **"Data Deletion Request"**
+3. Include your username or account identifier.
+
+We will delete your data within a reasonable time after receiving your request.
+
+---
+
+### Contact
 📧 **lujabbali@gmail.com**
     """)

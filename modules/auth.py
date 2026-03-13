@@ -1,109 +1,116 @@
 """
 auth.py
 -------
-Módulo de autenticación para CyberShield AI.
-Gestiona las pantallas de login y registro de usuarios con Streamlit.
+Authentication module for CyberShield AI.
+Dark purple/black gradient theme login screen.
 
 Author: Luci Jabba
 Copyright (c) 2026 Luci Jabba
 """
 
 import streamlit as st
-from modules.database import create_user, login_user
+from .database import create_user, login_user
 
-
-# ─────────────────────────────────────────────
-# ESTADO DE SESIÓN
-# ─────────────────────────────────────────────
 
 def init_session_state() -> None:
-    """
-    Inicializa las variables de estado de sesión necesarias para la app.
-    Solo establece valores si no existen previamente (idempotente).
-    """
-    defaults = {
-        "logged_in": False,
-        "username": "",
-    }
+    defaults = {"logged_in": False, "username": ""}
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
 
 def logout() -> None:
-    """
-    Cierra la sesión del usuario actual y reinicia los valores de sesión.
-    """
     st.session_state.logged_in = False
     st.session_state.username = ""
     st.rerun()
 
 
-# ─────────────────────────────────────────────
-# PANTALLA DE AUTENTICACIÓN
-# ─────────────────────────────────────────────
-
 def render_auth_screen(conn) -> None:
-    """
-    Renderiza la pantalla de autenticación con pestañas de Login y Registro.
+    # Centered login card
+    st.markdown("""
+    <div style="
+        max-width: 440px;
+        margin: 4rem auto 0 auto;
+        text-align: center;
+    ">
+        <div style="font-size:4rem; filter: drop-shadow(0 0 20px rgba(168,85,247,0.8)); margin-bottom:0.5rem;">🛡</div>
+        <h1 style="
+            font-family:'Syne',sans-serif;
+            font-weight:800;
+            font-size:2.4rem;
+            background: linear-gradient(135deg, #f0e8ff 0%, #a855f7 50%, #7c3aed 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin: 0 0 0.3rem 0;
+        ">CyberShield AI</h1>
+        <p style="color:#a594c0; font-family:'DM Sans',sans-serif; font-size:0.95rem; margin-bottom:2rem;">
+            AI-Powered Cyberbullying Detection Platform
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    Muestra dos tabs:
-        - Login: formulario para usuarios existentes.
-        - Sign Up: formulario de registro de nuevos usuarios.
+    # Card container
+    col_left, col_center, col_right = st.columns([1, 2, 1])
+    with col_center:
+        st.markdown("""
+        <div style="
+            background: linear-gradient(135deg, rgba(26,16,48,0.95), rgba(17,10,31,0.95));
+            border: 1px solid rgba(124,58,237,0.3);
+            border-radius: 20px;
+            padding: 2rem 2rem 1.5rem 2rem;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 40px rgba(124,58,237,0.1);
+        ">
+        """, unsafe_allow_html=True)
 
-    Si el login/registro es exitoso, actualiza st.session_state y
-    llama st.rerun() para redirigir al usuario a la app principal.
+        tab_login, tab_signup = st.tabs(["🔑  Log In", "✨  Create Account"])
 
-    Args:
-        conn (sqlite3.Connection): Conexión activa a la base de datos.
-    """
-    st.title("🛡 CyberShield AI")
-    st.subheader("Inicia sesión para continuar")
+        with tab_login:
+            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+            username = st.text_input("Username", key="login_user", placeholder="Enter your username")
+            password = st.text_input("Password", type="password", key="login_pass", placeholder="Enter your password")
+            st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
 
-    tab_login, tab_signup = st.tabs(["Iniciar sesión", "Crear cuenta"])
+            if st.button("Sign In →", key="btn_login", use_container_width=True):
+                if not username or not password:
+                    st.warning("Please fill in all fields.")
+                    return
+                if login_user(conn, username, password):
+                    st.session_state.logged_in = True
+                    st.session_state.username = username
+                    st.success("Welcome back! ✨")
+                    st.rerun()
+                else:
+                    st.error("Incorrect username or password.")
 
-    # ── LOGIN ────────────────────────────────
-    with tab_login:
-        username = st.text_input("Usuario", key="login_user")
-        password = st.text_input("Contraseña", type="password", key="login_pass")
+        with tab_signup:
+            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+            new_user = st.text_input("Username", key="signup_user", placeholder="Choose a username")
+            new_pass = st.text_input("Password", type="password", key="signup_pass", placeholder="Create a password")
+            confirm_pass = st.text_input("Confirm password", type="password", key="signup_confirm", placeholder="Repeat your password")
+            st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
 
-        if st.button("Entrar"):
-            # BUG FIX: El original no validaba campos vacíos antes de consultar la BD.
-            if not username or not password:
-                st.warning("Por favor completa todos los campos.")
-                return
+            if st.button("Create Account →", key="btn_signup", use_container_width=True):
+                if not new_user or not new_pass:
+                    st.warning("Please fill in all fields.")
+                    return
+                if new_pass != confirm_pass:
+                    st.error("Passwords do not match.")
+                    return
+                if len(new_pass) < 6:
+                    st.warning("Password must be at least 6 characters long.")
+                    return
+                success = create_user(conn, new_user, new_pass)
+                if success:
+                    st.success("Account created! You can now log in.")
+                else:
+                    st.error("Username already exists. Please choose another.")
 
-            if login_user(conn, username, password):
-                st.session_state.logged_in = True
-                st.session_state.username = username
-                st.success("Sesión iniciada correctamente.")
-                st.rerun()
-            else:
-                st.error("Usuario o contraseña incorrectos.")
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── REGISTRO ─────────────────────────────
-    with tab_signup:
-        new_user = st.text_input("Nuevo usuario", key="signup_user")
-        new_pass = st.text_input("Nueva contraseña", type="password", key="signup_pass")
-        confirm_pass = st.text_input("Confirmar contraseña", type="password", key="signup_confirm")
-
-        if st.button("Crear cuenta"):
-            # BUG FIX: El original no verificaba que las contraseñas coincidieran
-            # ni que los campos estuvieran completos antes de insertar en la BD.
-            if not new_user or not new_pass:
-                st.warning("Por favor completa todos los campos.")
-                return
-
-            if new_pass != confirm_pass:
-                st.error("Las contraseñas no coinciden.")
-                return
-
-            if len(new_pass) < 6:
-                st.warning("La contraseña debe tener al menos 6 caracteres.")
-                return
-
-            success = create_user(conn, new_user, new_pass)
-            if success:
-                st.success("Cuenta creada exitosamente. Ahora puedes iniciar sesión.")
-            else:
-                st.error("El nombre de usuario ya existe. Elige otro.")
+    # Footer
+    st.markdown("""
+    <div style="text-align:center; margin-top:2rem; color:#6b5e80; font-size:0.78rem; font-family:'DM Sans',sans-serif;">
+        © 2026 Luci Jabba · CyberShield AI · All rights reserved
+    </div>
+    """, unsafe_allow_html=True)
