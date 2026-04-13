@@ -2,30 +2,19 @@
 instagram.py
 ------------
 Módulo de integración con Instagram para CyberShield AI.
-Usa Instagram Scraper 2025 via RapidAPI.
+Usa Instaloader (gratuito, sin API key).
 
 Author: Luci Jabba
 Copyright (c) 2026 Luci Jabba
 """
 
-import os
-import requests
 import streamlit as st
 
-# ─────────────────────────────────────────────
-# CONFIGURACIÓN RAPIDAPI
-# ─────────────────────────────────────────────
-# Pega tu API Key aquí directamente:
-
-RAPIDAPI_KEY  = "649994126dmshc36d7a916e30b26p1ebab5jsn52dd30849635"
-RAPIDAPI_HOST = "instagram-scraper-20251.p.rapidapi.com"
-
-HEADERS = {
-    "x-rapidapi-key":  RAPIDAPI_KEY,
-    "x-rapidapi-host": RAPIDAPI_HOST,
-}
-
-BASE_URL = f"https://{RAPIDAPI_HOST}"
+try:
+    import instaloader
+    INSTALOADER_AVAILABLE = True
+except ImportError:
+    INSTALOADER_AVAILABLE = False
 
 
 # ─────────────────────────────────────────────
@@ -33,49 +22,34 @@ BASE_URL = f"https://{RAPIDAPI_HOST}"
 # ─────────────────────────────────────────────
 
 def get_profile_info(username: str) -> dict | None:
-    """
-    Obtiene información pública de un perfil de Instagram via RapidAPI.
-
-    Args:
-        username (str): Nombre de usuario de Instagram (sin @).
-
-    Returns:
-        dict con datos del perfil, o None si falla.
-    """
-    url = f"{BASE_URL}/userinfo/"
-    params = {"username_or_id": username}
+    if not INSTALOADER_AVAILABLE:
+        st.error("❌ Instaloader no está instalado. Ejecuta: pip install instaloader")
+        return None
 
     try:
-        response = requests.get(url, headers=HEADERS, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        L = instaloader.Instaloader()
+        profile = instaloader.Profile.from_username(L.context, username)
 
-        # Extraer datos del perfil
-        user = data.get("data", data)
-
-        followers = user.get("follower_count", user.get("followers", 0))
-        following = user.get("following_count", user.get("following", 0))
+        followers = profile.followers
+        following = profile.followees
 
         return {
-            "username":    user.get("username", username),
-            "full_name":   user.get("full_name", ""),
+            "username":    profile.username,
+            "full_name":   profile.full_name,
             "followers":   followers,
             "following":   following,
-            "posts":       user.get("media_count", user.get("posts", 0)),
-            "is_private":  user.get("is_private", False),
-            "biography":   user.get("biography", ""),
-            "is_verified": user.get("is_verified", False),
+            "posts":       profile.mediacount,
+            "is_private":  profile.is_private,
+            "biography":   profile.biography,
+            "is_verified": profile.is_verified,
             "ratio": round(following / followers, 2) if followers > 0 else 999,
         }
 
-    except requests.exceptions.Timeout:
-        st.error("⏱️ La consulta tardó demasiado. Intenta de nuevo.")
+    except instaloader.exceptions.ProfileNotExistsException:
+        st.error("❌ Perfil no encontrado. Verifica el nombre de usuario.")
         return None
-    except requests.exceptions.HTTPError as e:
-        if response.status_code == 429:
-            st.error("⚠️ Límite de requests alcanzado. Espera un momento.")
-        else:
-            st.error(f"❌ Error al consultar Instagram: {e}")
+    except instaloader.exceptions.ConnectionException:
+        st.error("⚠️ Instagram bloqueó la consulta temporalmente. Espera unos minutos e intenta de nuevo.")
         return None
     except Exception as e:
         st.error(f"❌ Error inesperado: {e}")
@@ -87,44 +61,26 @@ def get_profile_info(username: str) -> dict | None:
 # ─────────────────────────────────────────────
 
 def get_recent_comments(username: str, max_posts: int = 2, max_comments: int = 20) -> list[str]:
-    """
-    Obtiene los captions (textos) de los posts más recientes del perfil.
-    RapidAPI no siempre expone comentarios públicos, así que analizamos
-    los captions de los posts como texto representativo.
-
-    Args:
-        username     (str): Nombre de usuario de Instagram.
-        max_posts    (int): Número máximo de posts a retornar.
-        max_comments (int): No usado directamente, mantenido por compatibilidad.
-
-    Returns:
-        list[str]: Lista de captions/textos de posts.
-    """
-    url = f"{BASE_URL}/userposts/"
-    params = {"username_or_id": username, "count": max_posts}
+    if not INSTALOADER_AVAILABLE:
+        return []
 
     try:
-        response = requests.get(url, headers=HEADERS, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        L = instaloader.Instaloader()
+        profile = instaloader.Profile.from_username(L.context, username)
 
-        posts = data.get("data", {}).get("items", data.get("items", []))
+        if profile.is_private:
+            st.warning("🔒 Perfil privado. No se pueden obtener posts.")
+            return []
+
         captions = []
-
-        for post in posts[:max_posts]:
-            caption = post.get("caption", {})
-            if isinstance(caption, dict):
-                text = caption.get("text", "")
-            else:
-                text = str(caption) if caption else ""
-            if text:
-                captions.append(text)
+        for post in profile.get_posts():
+            if len(captions) >= max_posts:
+                break
+            if post.caption:
+                captions.append(post.caption)
 
         return captions
 
-    except requests.exceptions.Timeout:
-        st.warning("⏱️ No se pudieron cargar los posts. Intenta de nuevo.")
-        return []
     except Exception as e:
         st.warning(f"⚠️ No se pudieron cargar posts: {e}")
         return []
@@ -135,15 +91,6 @@ def get_recent_comments(username: str, max_posts: int = 2, max_comments: int = 2
 # ─────────────────────────────────────────────
 
 def analyze_fake_account(profile_data: dict) -> dict:
-    """
-    Evalúa la probabilidad de que una cuenta sea falsa usando heurísticas.
-
-    Args:
-        profile_data (dict): Resultado de get_profile_info().
-
-    Returns:
-        dict con risk_score (0-100), level ('low'/'medium'/'high'), indicators.
-    """
     risk_score = 0
     indicators = []
 
